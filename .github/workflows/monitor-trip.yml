@@ -1,0 +1,125 @@
+name: Monitor Trip Prices
+
+on:
+  schedule:
+    # Run twice daily at 9:00 AM and 9:00 PM UTC
+    # Adjust times as needed for your timezone
+    - cron: '0 9,21 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        playwright install chromium
+        playwright install-deps chromium
+
+    - name: Restore trip state from cache
+      uses: actions/cache/restore@v4
+      with:
+        path: trip_state.json
+        key: trip-state-${{ github.run_id }}
+        restore-keys: |
+          trip-state-
+
+    - name: Run monitor script
+      env:
+        TRIP_URL: https://www.intrepidtravel.com/us/morocco/essential-morocco-166485
+        TARGET_START: '2026-09-03'
+        TARGET_END: '2026-09-14'
+        EMAIL_TO: ${{ secrets.EMAIL_TO }}
+        EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+        SMTP_HOST: ${{ secrets.SMTP_HOST }}
+        SMTP_PORT: ${{ secrets.SMTP_PORT }}
+        SMTP_USER: ${{ secrets.SMTP_USER }}
+        SMTP_PASS: ${{ secrets.SMTP_PASS }}
+      run: |
+        python monitor_trip.py
+
+    - name: Save trip state to cache
+      uses: actions/cache/save@v4
+      if: always()
+      with:
+        path: trip_state.json
+        key: trip-state-${{ github.run_id }}
+
+    - name: Create GitHub Issue on Alert
+      if: success()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+
+          // Read the output from monitor script
+          if (!fs.existsSync('trip_state.json')) {
+            console.log('No state file found, skipping issue creation');
+            return;
+          }
+
+          const state = JSON.parse(fs.readFileSync('trip_state.json', 'utf8'));
+          const price = state.price;
+          const spots = state.spots;
+
+          // Check if we should create an issue (basic check - script also emails)
+          const lowSpots = spots !== null && spots <= 3;
+
+          if (lowSpots) {
+            const issueTitle = `🚨 Trip Alert: Low Availability Detected`;
+            const issueBody = `
+            ## Trip Monitoring Alert
+
+            **Trip:** Essential Morocco
+            **Dates:** September 3-14, 2026
+            **URL:** https://www.intrepidtravel.com/us/morocco/essential-morocco-166485
+
+            ### Current Status
+            - **Price:** $${price}
+            - **Spots Available:** ${spots} ${spots <= 3 ? '⚠️ LOW!' : ''}
+
+            **Detected at:** ${new Date().toISOString()}
+
+            ---
+            *This issue was automatically created by the trip monitoring workflow.*
+            `;
+
+            // Check if there's already an open issue
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: ['trip-alert']
+            });
+
+            if (issues.data.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: issueTitle,
+                body: issueBody,
+                labels: ['trip-alert', 'automated']
+              });
+              console.log('Created new alert issue');
+            } else {
+              // Update existing issue
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issues.data[0].number,
+                body: `### Update: ${new Date().toISOString()}\n- Price: $${price}\n- Spots: ${spots}`
+              });
+              console.log('Updated existing alert issue');
+            }
+          }
