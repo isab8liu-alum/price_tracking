@@ -1,0 +1,158 @@
+name: Monitor Fear & Greed Index
+
+on:
+  schedule:
+    # Run daily at 9:00 AM California time (Pacific Time)
+    # 9 AM PST = 5 PM UTC (winter), 9 AM PDT = 4 PM UTC (summer)
+    # Using 5 PM UTC to cover standard time
+    - cron: '0 17 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        playwright install chromium
+        playwright install-deps chromium
+
+    - name: Restore Fear & Greed state from cache
+      uses: actions/cache/restore@v4
+      with:
+        path: fear_greed_state.json
+        key: fear-greed-state-${{ github.run_id }}
+        restore-keys: |
+          fear-greed-state-
+
+    - name: Run Fear & Greed monitor
+      id: monitor
+      run: |
+        python monitor_fear_greed.py > output.json
+        cat output.json
+        echo "result=$(cat output.json | jq -c .)" >> $GITHUB_OUTPUT
+
+    - name: Save Fear & Greed state to cache
+      uses: actions/cache/save@v4
+      if: always()
+      with:
+        path: fear_greed_state.json
+        key: fear-greed-state-${{ github.run_id }}
+
+    - name: Create GitHub Issue on Extreme Fear
+      if: success()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+
+          // Read the output from monitor script
+          if (!fs.existsSync('output.json')) {
+            console.log('No output file found, skipping');
+            return;
+          }
+
+          const result = JSON.parse(fs.readFileSync('output.json', 'utf8'));
+          const index = result.index;
+          const sentiment = result.sentiment;
+          const extremeFear = result.extreme_fear;
+          const previousIndex = result.previous_index;
+
+          console.log(`Fear & Greed Index: ${index} (${sentiment})`);
+
+          // Create an issue if we're in extreme fear territory (< 25)
+          if (extremeFear) {
+            const issueTitle = `🚨 Fear & Greed Index: ${index} - ${sentiment}`;
+            const issueBody = `
+            ## Fear & Greed Index Alert
+
+            **Current Index:** ${index}/100
+            **Sentiment:** **${sentiment}** 🔴
+            ${previousIndex ? `**Previous Index:** ${previousIndex}` : ''}
+
+            The Fear & Greed Index has ${previousIndex && index < previousIndex ? 'dropped to' : 'reached'} **${index}**, indicating **extreme fear** in the market.
+
+            ### Index Levels
+            - 0-25: Extreme Fear 🔴
+            - 26-45: Fear 🟠
+            - 46-55: Neutral 🟡
+            - 56-75: Greed 🟢
+            - 76-100: Extreme Greed 🔵
+
+            **Source:** [CNN Fear & Greed Index](${result.url})
+            **Detected at:** ${new Date().toISOString()}
+
+            ---
+            *This issue was automatically created by the Fear & Greed monitoring workflow.*
+            `;
+
+            // Check if there's already an open extreme fear issue
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: ['fear-greed', 'extreme-fear']
+            });
+
+            if (issues.data.length === 0) {
+              // Create new issue
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: issueTitle,
+                body: issueBody,
+                labels: ['fear-greed', 'extreme-fear', 'automated']
+              });
+              console.log('Created new extreme fear alert issue');
+            } else {
+              // Update existing issue with a comment
+              const change = previousIndex ? (index - previousIndex) : 0;
+              const changeText = change !== 0 ? ` (${change > 0 ? '+' : ''}${change})` : '';
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issues.data[0].number,
+                body: `### Update: ${new Date().toISOString()}\n- **Index:** ${index}/100${changeText}\n- **Sentiment:** ${sentiment}`
+              });
+              console.log('Updated existing extreme fear issue');
+            }
+          } else {
+            console.log(`Index is ${index} (${sentiment}) - no alert needed`);
+
+            // Close any open extreme fear issues if we're above 25
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: ['fear-greed', 'extreme-fear']
+            });
+
+            for (const issue of issues.data) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `Index has recovered to ${index}/100 (${sentiment}). Closing this alert. 🟢`
+              });
+
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: 'closed'
+              });
+              console.log(`Closed issue #${issue.number} - index recovered`);
+            }
+          }

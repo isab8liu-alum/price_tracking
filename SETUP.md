@@ -98,7 +98,9 @@ The workflow uses GitHub Actions cache to persist the `trip_state.json` file bet
 
 ## Local Testing
 
-To test the script locally:
+### Test Trip Monitor
+
+To test the trip monitoring script locally:
 
 ```bash
 # Install dependencies
@@ -117,3 +119,42 @@ export SMTP_PASS="your-app-password"
 # Run the monitor
 python monitor_trip.py
 ```
+
+### Test Fear & Greed Monitor
+
+To test the Fear & Greed monitor locally:
+
+```bash
+# Install dependencies (same as above)
+pip install -r requirements.txt
+playwright install chromium
+
+# Run the monitor (no environment variables needed)
+python monitor_fear_greed.py
+```
+
+---
+
+## Fear & Greed Index Monitoring
+
+A second workflow monitors the **CNN Fear & Greed Index** daily.
+
+### Schedule
+- Runs daily at **9:00 AM California time** (5 PM UTC)
+
+### Alert Conditions
+You'll receive a **GitHub Issue notification** when:
+- Index drops **below 25** (Extreme Fear)
+
+### Index Levels
+- **0-25**: Extreme Fear 🔴 ← Alert triggered
+- **26-45**: Fear 🟠
+- **46-55**: Neutral 🟡
+- **56-75**: Greed 🟢
+- **76-100**: Extreme Greed 🔵
+
+### Features
+- Creates a GitHub issue labeled `extreme-fear` when index < 25
+- Updates existing issue with daily changes while in extreme fear
+- Automatically closes the issue when index recovers above 25
+- No email configuration needed (uses GitHub notifications only)
