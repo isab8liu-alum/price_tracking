@@ -18,7 +18,7 @@ EMAIL_TO = os.environ["EMAIL_TO"]
 EMAIL_FROM = os.environ.get("EMAIL_FROM", os.environ["SMTP_USER"])
 
 SMTP_HOST = os.environ["SMTP_HOST"]
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_PORT = int(os.environ.get("SMTP_PORT") or "587")
 SMTP_USER = os.environ["SMTP_USER"]
 SMTP_PASS = os.environ["SMTP_PASS"]
 
