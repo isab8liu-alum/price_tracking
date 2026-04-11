@@ -115,7 +115,8 @@ def main() -> int:
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1440, "height": 2200})
-        page.goto(URL, wait_until="networkidle", timeout=120_000)
+        page.goto(URL, wait_until="domcontentloaded", timeout=120_000)
+        page.wait_for_load_state("load", timeout=30_000)
 
         # Try a few common ways to expose the dates/prices section.
         for label in ["Dates and prices", "View dates and prices", "Dates & prices", "Dates"]:
