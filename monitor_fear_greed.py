@@ -68,7 +68,8 @@ def main() -> int:
         page = browser.new_page(viewport={"width": 1440, "height": 2200})
 
         # Navigate to the page
-        page.goto(URL, wait_until="networkidle", timeout=60_000)
+        page.goto(URL, wait_until="domcontentloaded", timeout=60_000)
+        page.wait_for_load_state("load", timeout=30_000)
         page.wait_for_timeout(3000)
 
         # Get page text
