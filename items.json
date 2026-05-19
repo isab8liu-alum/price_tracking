@@ -1,0 +1,22 @@
+[
+  {
+    "id": "morocco_trip",
+    "name": "Essential Morocco - Intrepid Travel",
+    "type": "url",
+    "url": "https://www.intrepidtravel.com/us/morocco/essential-morocco-166485",
+    "target_start": "2026-09-03",
+    "target_end": "2026-09-14",
+    "alert_on": ["price_drop", "low_spots"],
+    "enabled": true
+  },
+  {
+    "id": "birkenstock_mary_janes",
+    "name": "Birkenstock Mary Janes Tracy Style (dark colors)",
+    "type": "search",
+    "keywords": "birkenstock mary janes tracy style dark colors",
+    "sites": ["zappos.com", "birkenstock.com", "nordstrom.com"],
+    "max_price": 200,
+    "alert_on": ["price_drop", "new_result"],
+    "enabled": true
+  }
+]
